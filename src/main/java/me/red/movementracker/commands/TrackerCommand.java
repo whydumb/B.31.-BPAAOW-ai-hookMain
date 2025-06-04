@@ -18,7 +18,6 @@ import java.util.Comparator;
 import java.util.concurrent.CompletableFuture;
 
 public class TrackerCommand {
-
     private final TrackerHandler trackerHandler;
 
     public TrackerCommand(MovementTracker plugin) {
@@ -36,10 +35,11 @@ public class TrackerCommand {
                         &7/track <target> &8- &fStart tracking a determined target.
                         &7/untrack <target> &8- &fStop tracking a determined target.
                         &7/track log <target> &8- &fPrint the target movement log from the start of the tracking to this moment.
-                        &7/track save <target> <trackName> &8- &fSave the current movement log of the tracker inside the mongodb database and clear the current log.
+                        &7/track save <target> <trackName> &8- &fSave the current movement log (2-layer structure).
+                        &7/track saveflat <target> <trackName> &8- &fSave as flat structure (1-layer, better for queries).
                         
                         &cAll durations within the track logs are given in ticks so 1/20th of a second.
-                        &cIn order to get the mongodb database to work, you need to put the crediantials inside the config.
+                        &cFlat structure saves each action as a separate document for easier analysis.
                         """
         ));
     }
@@ -51,7 +51,6 @@ public class TrackerCommand {
             player.sendMessage(ChatColor.RED + "This player is being already tracked.");
             return;
         }
-
         player.sendMessage(ChatColor.GREEN + "Tracking " + target.getName());
     }
 
@@ -62,7 +61,6 @@ public class TrackerCommand {
             player.sendMessage(ChatColor.RED + "This player is not tracked.");
             return;
         }
-
         trackerHandler.removePlayer(target);
         player.sendMessage(ChatColor.GREEN + "Untracked player " + target.getName());
     }
@@ -76,8 +74,6 @@ public class TrackerCommand {
         }
 
         PlayerTracker tracker = trackerHandler.getActions().get(target.getUniqueId());
-        //Display
-
         ComponentBuilder<TextComponent, TextComponent.Builder> builder = Component.text();
 
         tracker.getActions().keySet()
@@ -93,6 +89,9 @@ public class TrackerCommand {
         player.sendMessage(builder.build());
     }
 
+    /**
+     * 기존 2층 구조 저장
+     */
     @Command("track save")
     @CommandPermission("movementtracker.save")
     public void onSaveTrack(Player player, Player target, String trackName) {
@@ -101,15 +100,32 @@ public class TrackerCommand {
             return;
         }
 
-        //Save logic
         PlayerTracker tracker = trackerHandler.getActions().get(target.getUniqueId());
 
         CompletableFuture.runAsync(() -> {
             tracker.saveData(trackName);
-            player.sendMessage(ChatColor.GREEN + "Saved track " + trackName);
-
+            player.sendMessage(ChatColor.GREEN + "Saved track " + trackName + " (2-layer structure)");
             tracker.getActions().clear();
         });
     }
 
+    /**
+     * 새로운 1층 구조 저장
+     */
+    @Command("track saveflat")
+    @CommandPermission("movementtracker.save")
+    public void onSaveFlatTrack(Player player, Player target, String trackName) {
+        if (!trackerHandler.isTracked(target)) {
+            player.sendMessage(ChatColor.RED + "This player is not tracked.");
+            return;
+        }
+
+        PlayerTracker tracker = trackerHandler.getActions().get(target.getUniqueId());
+
+        CompletableFuture.runAsync(() -> {
+            tracker.saveFlatData(trackName);
+            player.sendMessage(ChatColor.GREEN + "Saved track " + trackName + " (flat structure)");
+            tracker.getActions().clear();
+        });
+    }
 }
