@@ -37,9 +37,12 @@ public class TrackerCommand {
                         &7/track log <target> &8- &fPrint the target movement log from the start of the tracking to this moment.
                         &7/track save <target> <trackName> &8- &fSave the current movement log (2-layer structure).
                         &7/track saveflat <target> <trackName> &8- &fSave as flat structure (1-layer, better for queries).
+                        &7/track saveunified <target> <trackName> &8- &fSave as unified structure (1 document with all actions).
+                        &7/track updatestats <target> <trackName> &8- &fUpdate statistics for existing unified track.
                         
                         &cAll durations within the track logs are given in ticks so 1/20th of a second.
                         &cFlat structure saves each action as a separate document for easier analysis.
+                        &cUnified structure saves all actions in one document for better performance.
                         """
         ));
     }
@@ -126,6 +129,45 @@ public class TrackerCommand {
             tracker.saveFlatData(trackName);
             player.sendMessage(ChatColor.GREEN + "Saved track " + trackName + " (flat structure)");
             tracker.getActions().clear();
+        });
+    }
+
+    /**
+     * 통합된 Document로 저장하는 새로운 방식
+     */
+    @Command("track saveunified")
+    @CommandPermission("movementtracker.save")
+    public void onSaveUnifiedTrack(Player player, Player target, String trackName) {
+        if (!trackerHandler.isTracked(target)) {
+            player.sendMessage(ChatColor.RED + "This player is not tracked.");
+            return;
+        }
+
+        PlayerTracker tracker = trackerHandler.getActions().get(target.getUniqueId());
+
+        CompletableFuture.runAsync(() -> {
+            tracker.saveUnifiedData(trackName);
+            player.sendMessage(ChatColor.GREEN + "Saved track " + trackName + " (unified structure)");
+            tracker.getActions().clear();
+        });
+    }
+
+    /**
+     * 기존 통합 Document의 통계 업데이트
+     */
+    @Command("track updatestats")
+    @CommandPermission("movementtracker.save")
+    public void onUpdateTrackStats(Player player, Player target, String trackName) {
+        if (!trackerHandler.isTracked(target)) {
+            player.sendMessage(ChatColor.RED + "This player is not tracked.");
+            return;
+        }
+
+        PlayerTracker tracker = trackerHandler.getActions().get(target.getUniqueId());
+
+        CompletableFuture.runAsync(() -> {
+            tracker.updateStatistics(trackName);
+            player.sendMessage(ChatColor.GREEN + "Updated statistics for track " + trackName);
         });
     }
 }
