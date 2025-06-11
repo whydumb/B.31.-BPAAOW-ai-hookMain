@@ -7,7 +7,6 @@ import me.red.movementracker.tracker.PlayerTracker;
 import me.red.movementracker.tracker.TrackerAction;
 import me.red.movementracker.utils.LocationUtils;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -32,8 +31,10 @@ public class PlayerListener implements Listener {
                         float yaw = LocationUtils.normalizeYaw(player.getLocation().getYaw());
                         float pitch = player.getLocation().getPitch();
 
-                        PlayerTracker tracker = plugin.getTrackerHandler().getActions().get(player.getUniqueId());
-                        tracker.add(new TrackerAction(tracker.getCurrentOrder(), System.currentTimeMillis(), ActionType.IDLE, yaw, pitch));
+                        PlayerTracker tracker = plugin.getTrackerHandler().getTracker(player);
+                        if (tracker != null) {
+                            tracker.add(new TrackerAction(tracker.getCurrentOrder(), System.currentTimeMillis(), ActionType.IDLE, yaw, pitch));
+                        }
                     }
                 }
         ), 1L, 1L);
@@ -42,6 +43,8 @@ public class PlayerListener implements Listener {
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         lastTick.remove(event.getPlayer());
+        // 플레이어가 나갈 때 추적도 중지
+        plugin.getTrackerHandler().removePlayer(event.getPlayer());
     }
 
     @EventHandler
@@ -73,8 +76,10 @@ public class PlayerListener implements Listener {
 
         ActionType action = determineAction(forwardComponent, rightComponent);
 
-        PlayerTracker tracker = plugin.getTrackerHandler().getActions().get(player.getUniqueId());
-        tracker.add(new TrackerAction(tracker.getCurrentOrder(), System.currentTimeMillis(), action, yaw, pitch));
+        PlayerTracker tracker = plugin.getTrackerHandler().getTracker(player);
+        if (tracker != null) {
+            tracker.add(new TrackerAction(tracker.getCurrentOrder(), System.currentTimeMillis(), action, yaw, pitch));
+        }
     }
 
     private ActionType determineAction(double forward, double right) {
@@ -105,5 +110,4 @@ public class PlayerListener implements Listener {
             return ActionType.IDLE;
         }
     }
-
 }
