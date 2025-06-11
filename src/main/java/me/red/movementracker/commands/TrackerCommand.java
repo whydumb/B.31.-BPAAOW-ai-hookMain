@@ -32,7 +32,8 @@ public class TrackerCommand {
                         &c&d&3
                         &aAvailable commands:
                         &7/track help &8- &fPrint this help message.
-                        &7/track <target> &8- &fStart tracking a determined target.
+                        &7/track <target> <trackName> &8- &fStart tracking with track name.
+                        &7/track <target> &8- &fStart tracking with default name.
                         &7/untrack <target> &8- &fStop tracking a determined target.
                         &7/track log <target> &8- &fPrint the target movement log from the start of the tracking to this moment.
                         &7/track save <target> <trackName> &8- &fSave the current movement log (2-layer structure).
@@ -49,7 +50,17 @@ public class TrackerCommand {
 
     @Command("track")
     @CommandPermission("movementtracker.track")
-    public void onTrack(Player player, Player target) {
+    public void onTrack(Player player, Player target, String trackName) {
+        if (!trackerHandler.trackPlayer(target, trackName)) {
+            player.sendMessage(ChatColor.RED + "This player is being already tracked.");
+            return;
+        }
+        player.sendMessage(ChatColor.GREEN + "Tracking " + target.getName() + " as '" + trackName + "'");
+    }
+
+    @Command("track")
+    @CommandPermission("movementtracker.track")
+    public void onTrackDefault(Player player, Player target) {
         if (!trackerHandler.trackPlayer(target)) {
             player.sendMessage(ChatColor.RED + "This player is being already tracked.");
             return;
@@ -77,6 +88,13 @@ public class TrackerCommand {
         }
 
         PlayerTracker tracker = trackerHandler.getActions().get(target.getUniqueId());
+        
+        // actions가 null이거나 비어있는지 확인
+        if (tracker.getActions() == null || tracker.getActions().isEmpty()) {
+            player.sendMessage(ChatColor.YELLOW + "No movement data recorded for " + target.getName());
+            return;
+        }
+
         ComponentBuilder<TextComponent, TextComponent.Builder> builder = Component.text();
 
         tracker.getActions().keySet()
@@ -84,7 +102,7 @@ public class TrackerCommand {
                 .sorted(Comparator.comparingLong(TrackerAction::time))
                 .forEach(action ->
                         builder.append(
-                                Component.text(CC.translate(action + "&b (&fx" + tracker.getActions().getLong(action) + "&b)"))
+                                Component.text(CC.translate(action.toString() + "&b (&fx" + tracker.getActions().getLong(action) + "&b)"))
                                         .appendNewline()
                         )
                 );
@@ -105,10 +123,20 @@ public class TrackerCommand {
 
         PlayerTracker tracker = trackerHandler.getActions().get(target.getUniqueId());
 
+        if (tracker.getActions() == null || tracker.getActions().isEmpty()) {
+            player.sendMessage(ChatColor.YELLOW + "No data to save for " + target.getName());
+            return;
+        }
+
         CompletableFuture.runAsync(() -> {
-            tracker.saveData(trackName);
-            player.sendMessage(ChatColor.GREEN + "Saved track " + trackName + " (2-layer structure)");
-            tracker.getActions().clear();
+            try {
+                tracker.saveData(trackName);
+                player.sendMessage(ChatColor.GREEN + "Saved track " + trackName + " (2-layer structure)");
+                tracker.getActions().clear();
+            } catch (Exception e) {
+                player.sendMessage(ChatColor.RED + "Failed to save track: " + e.getMessage());
+                e.printStackTrace();
+            }
         });
     }
 
@@ -125,10 +153,20 @@ public class TrackerCommand {
 
         PlayerTracker tracker = trackerHandler.getActions().get(target.getUniqueId());
 
+        if (tracker.getActions() == null || tracker.getActions().isEmpty()) {
+            player.sendMessage(ChatColor.YELLOW + "No data to save for " + target.getName());
+            return;
+        }
+
         CompletableFuture.runAsync(() -> {
-            tracker.saveFlatData(trackName);
-            player.sendMessage(ChatColor.GREEN + "Saved track " + trackName + " (flat structure)");
-            tracker.getActions().clear();
+            try {
+                tracker.saveFlatData(trackName);
+                player.sendMessage(ChatColor.GREEN + "Saved track " + trackName + " (flat structure)");
+                tracker.getActions().clear();
+            } catch (Exception e) {
+                player.sendMessage(ChatColor.RED + "Failed to save track: " + e.getMessage());
+                e.printStackTrace();
+            }
         });
     }
 
@@ -145,10 +183,20 @@ public class TrackerCommand {
 
         PlayerTracker tracker = trackerHandler.getActions().get(target.getUniqueId());
 
+        if (tracker.getActions() == null || tracker.getActions().isEmpty()) {
+            player.sendMessage(ChatColor.YELLOW + "No data to save for " + target.getName());
+            return;
+        }
+
         CompletableFuture.runAsync(() -> {
-            tracker.saveUnifiedData(trackName);
-            player.sendMessage(ChatColor.GREEN + "Saved track " + trackName + " (unified structure)");
-            tracker.getActions().clear();
+            try {
+                tracker.saveUnifiedData(trackName);
+                player.sendMessage(ChatColor.GREEN + "Saved track " + trackName + " (unified structure)");
+                tracker.getActions().clear();
+            } catch (Exception e) {
+                player.sendMessage(ChatColor.RED + "Failed to save track: " + e.getMessage());
+                e.printStackTrace();
+            }
         });
     }
 
@@ -166,8 +214,13 @@ public class TrackerCommand {
         PlayerTracker tracker = trackerHandler.getActions().get(target.getUniqueId());
 
         CompletableFuture.runAsync(() -> {
-            tracker.updateStatistics(trackName);
-            player.sendMessage(ChatColor.GREEN + "Updated statistics for track " + trackName);
+            try {
+                tracker.updateStatistics(trackName);
+                player.sendMessage(ChatColor.GREEN + "Updated statistics for track " + trackName);
+            } catch (Exception e) {
+                player.sendMessage(ChatColor.RED + "Failed to update statistics: " + e.getMessage());
+                e.printStackTrace();
+            }
         });
     }
 }
