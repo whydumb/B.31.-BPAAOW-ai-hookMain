@@ -1,27 +1,29 @@
 package me.red.movementracker.commands;
 
+import com.mongodb.client.FindIterable;
+import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Sorts;
 import me.red.movementracker.MovementTracker;
+import me.red.movementracker.mongo.MongoManager;
 import me.red.movementracker.tracker.PlayerTracker;
-import me.red.movementracker.tracker.TrackerAction;
-import me.red.movementracker.tracker.handler.TrackerHandler;
 import me.red.movementracker.utils.CC;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.ComponentBuilder;
 import net.kyori.adventure.text.TextComponent;
+import org.bson.Document;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 import revxrsal.commands.annotation.Command;
 import revxrsal.commands.bukkit.actor.BukkitCommandActor;
 import revxrsal.commands.bukkit.annotation.CommandPermission;
 
-import java.util.Comparator;
 import java.util.concurrent.CompletableFuture;
 
 public class TrackerCommand {
-    private final TrackerHandler trackerHandler;
+    private final MovementTracker plugin;
 
     public TrackerCommand(MovementTracker plugin) {
-        this.trackerHandler = plugin.getTrackerHandler();
+        this.plugin = plugin;
     }
 
     @Command("track help")
@@ -35,15 +37,10 @@ public class TrackerCommand {
                         &7/track <target> <trackName> &8- &fStart tracking with track name.
                         &7/track <target> &8- &fStart tracking with default name.
                         &7/untrack <target> &8- &fStop tracking a determined target.
-                        &7/track log <target> &8- &fPrint the target movement log from the start of the tracking to this moment.
-                        &7/track save <target> <trackName> &8- &fSave the current movement log (2-layer structure).
-                        &7/track saveflat <target> <trackName> &8- &fSave as flat structure (1-layer, better for queries).
-                        &7/track saveunified <target> <trackName> &8- &fSave as unified structure (1 document with all actions).
-                        &7/track updatestats <target> <trackName> &8- &fUpdate statistics for existing unified track.
+                        &7/track log <target> &8- &fPrint the target movement log from MongoDB.
                         
-                        &cAll durations within the track logs are given in ticks so 1/20th of a second.
-                        &cFlat structure saves each action as a separate document for easier analysis.
-                        &cUnified structure saves all actions in one document for better performance.
+                        &cAll movement data is now saved directly to MongoDB.
+                        &cNo memory storage is used - all data goes straight to database.
                         """
         ));
     }
@@ -51,7 +48,7 @@ public class TrackerCommand {
     @Command("track")
     @CommandPermission("movementtracker.track")
     public void onTrack(Player player, Player target, String trackName) {
-        if (!trackerHandler.trackPlayer(target, trackName)) {
+        if (!plugin.getTrackerHandler().trackPlayer(target, trackName)) {
             player.sendMessage(ChatColor.RED + "This player is being already tracked.");
             return;
         }
@@ -61,7 +58,7 @@ public class TrackerCommand {
     @Command("track")
     @CommandPermission("movementtracker.track")
     public void onTrackDefault(Player player, Player target) {
-        if (!trackerHandler.trackPlayer(target)) {
+        if (!plugin.getTrackerHandler().trackPlayer(target)) {
             player.sendMessage(ChatColor.RED + "This player is being already tracked.");
             return;
         }
@@ -71,156 +68,79 @@ public class TrackerCommand {
     @Command("untrack")
     @CommandPermission("movementtracker.untrack")
     public void onUntrack(Player player, Player target) {
-        if (!trackerHandler.isTracked(target)) {
+        if (!plugin.getTrackerHandler().isTracked(target)) {
             player.sendMessage(ChatColor.RED + "This player is not tracked.");
             return;
         }
-        trackerHandler.removePlayer(target);
+        plugin.getTrackerHandler().removePlayer(target);
         player.sendMessage(ChatColor.GREEN + "Untracked player " + target.getName());
     }
 
     @Command("track log")
     @CommandPermission("movementtracker.log")
     public void onTrackLog(Player player, Player target) {
-        if (!trackerHandler.isTracked(target)) {
+        if (!plugin.getTrackerHandler().isTracked(target)) {
             player.sendMessage(ChatColor.RED + "This player is not tracked.");
             return;
         }
 
-        PlayerTracker tracker = trackerHandler.getActions().get(target.getUniqueId());
-        
-        // actions가 null이거나 비어있는지 확인
-        if (tracker.getActions() == null || tracker.getActions().isEmpty()) {
-            player.sendMessage(ChatColor.YELLOW + "No movement data recorded for " + target.getName());
-            return;
-        }
-
-        ComponentBuilder<TextComponent, TextComponent.Builder> builder = Component.text();
-
-        tracker.getActions().keySet()
-                .stream()
-                .sorted(Comparator.comparingLong(TrackerAction::time))
-                .forEach(action ->
-                        builder.append(
-                                Component.text(CC.translate(action.toString() + "&b (&fx" + tracker.getActions().getLong(action) + "&b)"))
-                                        .appendNewline()
-                        )
-                );
-
-        player.sendMessage(builder.build());
-    }
-
-    /**
-     * 기존 2층 구조 저장
-     */
-    @Command("track save")
-    @CommandPermission("movementtracker.save")
-    public void onSaveTrack(Player player, Player target, String trackName) {
-        if (!trackerHandler.isTracked(target)) {
-            player.sendMessage(ChatColor.RED + "This player is not tracked.");
-            return;
-        }
-
-        PlayerTracker tracker = trackerHandler.getActions().get(target.getUniqueId());
-
-        if (tracker.getActions() == null || tracker.getActions().isEmpty()) {
-            player.sendMessage(ChatColor.YELLOW + "No data to save for " + target.getName());
+        PlayerTracker tracker = plugin.getTrackerHandler().getTracker(target);
+        if (tracker == null) {
+            player.sendMessage(ChatColor.RED + "Tracker not found for " + target.getName());
             return;
         }
 
         CompletableFuture.runAsync(() -> {
             try {
-                tracker.saveData(trackName);
-                player.sendMessage(ChatColor.GREEN + "Saved track " + trackName + " (2-layer structure)");
-                tracker.getActions().clear();
+                // MongoDB에서 해당 플레이어의 추적 데이터 조회
+                FindIterable<Document> documents = MongoManager.get().getMovements()
+                        .find(Filters.and(
+                                Filters.eq("player_id", target.getUniqueId().toString()),
+                                Filters.eq("replay_name", tracker.getTrackName())
+                        ))
+                        .sort(Sorts.ascending("order"))
+                        .limit(50); // 최대 50개만 표시
+
+                ComponentBuilder<TextComponent, TextComponent.Builder> builder = Component.text();
+                builder.append(Component.text(ChatColor.GREEN + "Movement log for " + target.getName() + ":"))
+                        .appendNewline();
+
+                int count = 0;
+                for (Document doc : documents) {
+                    if (count >= 50) break;
+
+                    String action = doc.getString("action");
+                    double yaw = doc.getDouble("yaw");
+                    double pitch = doc.getDouble("pitch");
+                    long duration = doc.getLong("duration");
+
+                    builder.append(Component.text(CC.translate(
+                            "&7Order: &f" + doc.getInteger("order") +
+                                    " &7Action: &e" + action +
+                                    " &7Yaw: &f" + String.format("%.2f", yaw) +
+                                    " &7Pitch: &f" + String.format("%.2f", pitch) +
+                                    " &7Duration: &b" + duration
+                    ))).appendNewline();
+
+                    count++;
+                }
+
+                if (count == 0) {
+                    player.sendMessage(ChatColor.YELLOW + "No movement data found for " + target.getName());
+                } else {
+                    player.sendMessage(builder.build());
+                    if (count >= 50) {
+                        player.sendMessage(ChatColor.YELLOW + "Showing first 50 entries. Check MongoDB for complete data.");
+                    }
+                }
+
             } catch (Exception e) {
-                player.sendMessage(ChatColor.RED + "Failed to save track: " + e.getMessage());
+                player.sendMessage(ChatColor.RED + "Failed to retrieve movement log: " + e.getMessage());
                 e.printStackTrace();
             }
         });
     }
 
-    /**
-     * 새로운 1층 구조 저장
-     */
-    @Command("track saveflat")
-    @CommandPermission("movementtracker.save")
-    public void onSaveFlatTrack(Player player, Player target, String trackName) {
-        if (!trackerHandler.isTracked(target)) {
-            player.sendMessage(ChatColor.RED + "This player is not tracked.");
-            return;
-        }
-
-        PlayerTracker tracker = trackerHandler.getActions().get(target.getUniqueId());
-
-        if (tracker.getActions() == null || tracker.getActions().isEmpty()) {
-            player.sendMessage(ChatColor.YELLOW + "No data to save for " + target.getName());
-            return;
-        }
-
-        CompletableFuture.runAsync(() -> {
-            try {
-                tracker.saveFlatData(trackName);
-                player.sendMessage(ChatColor.GREEN + "Saved track " + trackName + " (flat structure)");
-                tracker.getActions().clear();
-            } catch (Exception e) {
-                player.sendMessage(ChatColor.RED + "Failed to save track: " + e.getMessage());
-                e.printStackTrace();
-            }
-        });
-    }
-
-    /**
-     * 통합된 Document로 저장하는 새로운 방식
-     */
-    @Command("track saveunified")
-    @CommandPermission("movementtracker.save")
-    public void onSaveUnifiedTrack(Player player, Player target, String trackName) {
-        if (!trackerHandler.isTracked(target)) {
-            player.sendMessage(ChatColor.RED + "This player is not tracked.");
-            return;
-        }
-
-        PlayerTracker tracker = trackerHandler.getActions().get(target.getUniqueId());
-
-        if (tracker.getActions() == null || tracker.getActions().isEmpty()) {
-            player.sendMessage(ChatColor.YELLOW + "No data to save for " + target.getName());
-            return;
-        }
-
-        CompletableFuture.runAsync(() -> {
-            try {
-                tracker.saveUnifiedData(trackName);
-                player.sendMessage(ChatColor.GREEN + "Saved track " + trackName + " (unified structure)");
-                tracker.getActions().clear();
-            } catch (Exception e) {
-                player.sendMessage(ChatColor.RED + "Failed to save track: " + e.getMessage());
-                e.printStackTrace();
-            }
-        });
-    }
-
-    /**
-     * 기존 통합 Document의 통계 업데이트
-     */
-    @Command("track updatestats")
-    @CommandPermission("movementtracker.save")
-    public void onUpdateTrackStats(Player player, Player target, String trackName) {
-        if (!trackerHandler.isTracked(target)) {
-            player.sendMessage(ChatColor.RED + "This player is not tracked.");
-            return;
-        }
-
-        PlayerTracker tracker = trackerHandler.getActions().get(target.getUniqueId());
-
-        CompletableFuture.runAsync(() -> {
-            try {
-                tracker.updateStatistics(trackName);
-                player.sendMessage(ChatColor.GREEN + "Updated statistics for track " + trackName);
-            } catch (Exception e) {
-                player.sendMessage(ChatColor.RED + "Failed to update statistics: " + e.getMessage());
-                e.printStackTrace();
-            }
-        });
-    }
+    // save, saveflat, saveunified, updatestats 명령어들은 제거
+    // 이제 데이터가 실시간으로 MongoDB에 저장되므로 별도의 저장 과정이 필요 없음
 }
