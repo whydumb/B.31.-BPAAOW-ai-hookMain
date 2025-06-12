@@ -1,0 +1,30 @@
+name: MovementTracker
+version: '1.0'
+main: me.red.movementracker.MovementTracker
+api-version: '1.13'
+
+commands:
+  track:
+    description: Main command for movement tracking
+    usage: /<command> [help|track|untrack|log|save] [player] [trackName]
+    permission: movementtracker.use
+
+permissions:
+  movementtracker.use:
+    description: Allows access to the base track command
+    default: op
+  movementtracker.help:
+    description: Allows viewing help for movement tracker
+    default: op
+  movementtracker.track:
+    description: Allows tracking players
+    default: op
+  movementtracker.untrack:
+    description: Allows untracking players
+    default: op
+  movementtracker.log:
+    description: Allows viewing movement logs
+    default: op
+  movementtracker.save:
+    description: Allows saving movement logs
+    default: op
